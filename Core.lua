@@ -171,9 +171,11 @@ function CLT:Report(t)
     message = string_gsub(message, "*tgt", dName)
     message = string_gsub(message, "*sid", spellId)
     message = string_gsub(message, "*sname", spellName)
+    message = string_gsub(message, "*slink", GetSpellLink(spellId))
     if espellId ~= nil then
-        message = string_gsub(message, "*espellId", espellId)
-        message = string_gsub(message, "*espellName", espellName)
+        message = string_gsub(message, "*esid", espellId)
+        message = string_gsub(message, "*esname", espellName)
+        message = string_gsub(message, "*eslink", GetSpellLink(espellId))
     end
 
     -- handle auto channel selection
