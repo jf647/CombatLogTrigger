@@ -164,7 +164,6 @@ end
 
 -- report an event to a channel
 function CLT:Report(t)
-
  
     -- format the message
     local message = string_gsub(t.message, "*ev", ev)
@@ -177,13 +176,6 @@ function CLT:Report(t)
         message = string_gsub(message, "*espellName", espellName)
     end
 
-   -- format the channel
-    local whisper_dest
-    if t.channel = "WHISPER" then
-        whisper_dest = string_gsub(t.whisper_dest, "*src", sName)
-        whisper_dest = string_gsub(whisper_dest, "*tgt", dName)
-    end
-    
     -- handle auto channel selection
     local channel = t.channel
     if channel = "AUTO" then
@@ -198,6 +190,9 @@ function CLT:Report(t)
     
     -- output the message
     if channel = "WHISPER" then
+        local whisper_dest
+        whisper_dest = string_gsub(t.whisper_dest, "*src", sName)
+        whisper_dest = string_gsub(whisper_dest, "*tgt", dName)
         SendChatMessage(message, "WHISPER", nil, whisper_dest)
     elseif channel = "SELF" then
         self:Print(message)
