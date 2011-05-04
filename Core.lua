@@ -11,9 +11,16 @@ CLT = LibStub("AceAddon-3.0"):NewAddon(
 -- interesting affiliations and triggers
 local aff, aff_to_triggers
 
+-- group size
+local grouptype = 0
+
+-- per-event variables to avoid re-allocating in-scope
+local ev, sName, sFlags, dName, dFlags, spellId, spellName, espellId, espellName
+
 -- convenience functions
 local bit_band = _G.bit.band
 local string_find = string.find
+local string_gsub = string.gsub
 
 -- convenience bitmasks
 local filterMine = _G.bit.bor(
@@ -39,18 +46,6 @@ local filterEnemy = _G.bit.bor(
     COMBATLOG_OBJECT_TYPE_OBJECT,
 )
 
--- handlers
-local handlers = {
-    "SPELL_CAST_SUCCESS" = CLT:Handle_SPELL_CAST_SUCCESS,
-    "SPELL_AURA_APPLIED" = CLT:Handle_SPELL_AURA_APPLIED,
-    "SPELL_AURA_REMOVED" = CLT:Handle_SPELL_AURA_REMOVED,
-    "SPELL_INTERRUPT" = CLT:Handle_SPELL_INTERRUPT,
-    "SPELL_MISSED" = CLT:Handle_SPELL_MISSED,
-    "SPELL_SUMMON" = CLT:Handle_SPELL_SUMMON,
-    "SPELL_DISPEL" = CLT:Handle_SPELL_DISPEL,
-    "UNIT_DESTROYED" = CLT:Handle_UNIT_DESTROYED,
-}
-
 -- debug output
 function CLT:Debug(...)
     if CLT_DB.debug then
@@ -62,6 +57,9 @@ end
 function CLT:OnEnable()
     if CLT_DB.enabled then
         self:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+        self:RegisterEvent("PARTY_MEMBERS_CHANGED", "UpdateGroupType")
+        self:RegisterEvent("RAID_ROSTER_UPDATE", "UpdateGroupType")
+        self:UpdateGroupType()
         self:Print("CombatLogTrigger activated with " .. #(CLT_Triggers) .. " triggers")
     end
     aff = {}
@@ -89,13 +87,12 @@ end
 
 -- build a list of interesting affiliations and events
 function CLT:BuildInteresting()
-    local numTriggers = #(CLT_Triggers)
     local affil = {}
-    for 1, numTriggers do
+    for 1, #(CLT_Triggers)
         t = CLT_Triggers[i]
         if CLTDB.debug then
-            if t.spellid ~= nil then
-                self:Debug("trigger ", i, ": ", t.event, ", ", t.spellid, ", ", t.channel, ", ", t.message)
+            if t.spellId ~= nil then
+                self:Debug("trigger ", i, ": ", t.event, ", ", t.spellId, ", ", t.channel, ", ", t.message)
             else
                 self:Debug("trigger ", i, ": ", t.event, ", ", t.channel, ", ", t.message)
             end
@@ -107,14 +104,14 @@ function CLT:BuildInteresting()
             end
             self:Debug("adding trigger ", i, " to filterMine events")
             table.insert(aff_to_trigger[filterMine], i)
-        else if t.affiliation = "myGuardian" then 
+        elseif t.affiliation = "myGuardian" then 
             if affil[filterMyGuardian] = nil then
                 self:Debug("adding filterMyGuardian to interesting affiliations")
                 affil[filterMyGuardian] = 1
             end
             self:Debug("adding trigger ", i, " to filterMyGuardian events")
             table.insert(aff_to_trigger[filterMyGuardian], i)
-        else if t.affiliation = "enemy" then
+        elseif t.affiliation = "enemy" then
             if affil[filterEnemy] = nil then
                 self:Debug("adding filterEnemy to interesting affiliations")
                 affil[filterEnemy] = 1
@@ -128,58 +125,85 @@ function CLT:BuildInteresting()
     end
 end
 
+-- handle party/raid size changes
+function CLT:UpdateGroupType()
+    if GetNumRaidMembers > 0 then
+        grouptype = 2
+    elseif GetNumPartyMembers > 0 then
+        grouptype = 1
+    else
+        grouptype = 0
+    end
+end
+
 -- handle combat log event
 function CLT:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
-    local ev, _, _, sName, sFlags, _, dName, dFlags = select(2, ...)
+    ev, _, _, sName, sFlags, _, dName, dFlags, spellId, spellName, _, espellId, espellName = select(2, ...)
     for i, mask in ipairs(aff) do
         if bit_band(sFlags, mask) or bit_band(dFlags, mask) then
             for i, triggernum in ipairs(aff_to_trigger[aff]) do
                 t = CLT_Triggers[triggernum]
-                if string_find(ev, t.event) ~= nil then
-                    handlers[ev](ev, ...)
+                -- break out early if we have a group type constraint that doesn't match
+                if t.groupType ~= nil then if t.grouptype ~= grouptype then return end
+                -- does the event match?
+                if t.event = ev then
+                    -- does the spellId or spellName match? 
+                    if t.spellId ~= nil and t.spellId = spellId
+                       or
+                       t.spellName ~= nil and t.spellName = spellName
+                       or
+                       t.anySpell ~= nil
+                    then
+                        self:Report(t)
+                    end
                 end
             end
         end
     end
 end
 
--- SPELL_CAST_SUCCESS  spellId, spellName, spellSchool
-function CLT:Handle_SPELL_CAST_SUCCESS(ev, ...)
-    
-end
+-- report an event to a channel
+function CLT:Report(t)
 
--- SPELL_AURA_APPLIED  spellId, spellName, spellSchool, auraType
-function CLT:Handle_SPELL_AURA_APPLIED(ev, ...)
-    
-end
+ 
+    -- format the message
+    local message = string_gsub(t.message, "*ev", ev)
+    message = string_gsub(message, "*src", sName)
+    message = string_gsub(message, "*tgt", dName)
+    message = string_gsub(message, "*sid", spellId)
+    message = string_gsub(message, "*sname", spellName)
+    if espellId ~= nil then
+        message = string_gsub(message, "*espellId", espellId)
+        message = string_gsub(message, "*espellName", espellName)
+    end
 
--- SPELL_AURA_REMOVED  spellId, spellName, spellSchool, auraType
-function CLT:Handle_SPELL_AURA_REMOVED(ev, ...)
+   -- format the channel
+    local whisper_dest
+    if t.channel = "WHISPER" then
+        whisper_dest = string_gsub(t.whisper_dest, "*src", sName)
+        whisper_dest = string_gsub(whisper_dest, "*tgt", dName)
+    end
     
-end
-
--- SPELL_INTERRUPT     spellId, spellName, spellSchool, extraSpellId, extraSpellName, extraSchool
-function CLT:Handle_SPELL_INTERRUPT(ev, ...)
+    -- handle auto channel selection
+    local channel = t.channel
+    if channel = "AUTO" then
+        if grouptype = 2 then
+            channel = "RAID"
+        elseif grouptype = 1 then
+            channel = "PARTY"
+        else
+            channel = "SELF"
+        end
+    end
     
-end
-
--- SPELL_MISSED        spellId, spellName, spellSchool, missType, amountMissed
-function CLT:Handle_SPELL_MISSED(ev, ...)
-    
-end
-
--- SPELL_SUMMON        spellId, spellName, spellSchool
-function CLT:Handle_SPELL_SUMMON(ev, ...)
-    
-end
-
--- SPELL_DISPEL        spellId, spellName, spellSchool, extraSpellId, extraSpellName, extraSchool, auraType
-function CLT:Handle_SPELL_DISPEL_SPELL_STOLEN(ev, ...)
-    
-end
-
--- UNIT_DESTROYED
-function CLT:Handle_UNIT_DESTROYED(ev, ...)
+    -- output the message
+    if channel = "WHISPER" then
+        SendChatMessage(message, "WHISPER", nil, whisper_dest)
+    elseif channel = "SELF" then
+        self:Print(message)
+    else
+        SendChatMessage(message, channel)
+    end
     
 end
 
