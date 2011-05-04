@@ -6,3 +6,5 @@
 ## SavedVariablesPerCharacter: CLT_Triggers, CLT_DB
 
 Core.lua
+
+embeds.xml

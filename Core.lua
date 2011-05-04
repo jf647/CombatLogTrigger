@@ -38,6 +38,11 @@ local filterEnemy = _G.bit.bor(
     COMBATLOG_OBJECT_TYPE_OBJECT,
 )
 
+-- debug output
+function CLT:Debug(text)
+
+end
+
 -- enable addon
 function CLT:OnEnable()
     if CLT_DB.enabled then
@@ -96,6 +101,7 @@ function CLT:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
             for i, rulenum in ipairs(aff_to_trigger[aff]) do
                 rule = CLT_Triggers[rulenum]
                 if string_find(rule.event) ~= nil then
+                    
                 end
             end
         end
