@@ -14,6 +14,9 @@ local aff, aff_to_trigger
 -- group size
 local grouptype = 0
 
+-- current talent spec
+local specnum
+
 -- per-event variables to avoid re-allocating in-scope
 local ev, sName, sFlags, dName, dFlags, spellId, spellName, espellId, espellName, doReport
 
@@ -64,9 +67,10 @@ function CLT:OnEnable()
         self:RegisterEvent("PARTY_MEMBERS_CHANGED", "UpdateGroupType")
         self:RegisterEvent("RAID_ROSTER_UPDATE", "UpdateGroupType")
         self:UpdateGroupType()
-        self:Print("CombatLogTrigger activated with " .. #(CLT_Triggers) .. " triggers")
+        self:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", "UpdateSpec")
+        self:UpdateSpec()
+        self:Print("CombatLogTrigger activated")
     end
-    self:BuildInteresting()
 end
 
 -- disable addon
@@ -82,8 +86,8 @@ function CLT:BuildInteresting()
     local affil = {}
 	aff = {}
 	aff_to_trigger = {}
-    for i = 1, #(CLT_Triggers) do
-        t = CLT_Triggers[i]
+    for i = 1, #(CLT_Triggers.specnum) do
+        t = CLT_Triggers.specnum[i]
         if CLT_DB.debug then
             if t.spellId ~= nil then
                 self:Debug("trigger ", i, ":", t.event, ",", t.spellId, ",", t.channel, ",", t.message)
@@ -147,6 +151,12 @@ function CLT:UpdateGroupType()
     end
 end
 
+-- handle spec changes
+function CLT:UpdateSpec()
+    specnum = GetActiveTalentGroup(false, false)
+    self:BuildInteresting()
+end
+
 -- handle combat log event
 function CLT:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
     ev, _, _, sName, sFlags, _, dName, dFlags, spellId, spellName, _, espellId, espellName = select(2, ...)
@@ -154,7 +164,7 @@ function CLT:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
         if bit_band(sFlags, aff) or bit_band(dFlags, aff) then
 			saff = string_format("%d", aff)
             for i, triggernum in ipairs(aff_to_trigger[saff]) do
-                t = CLT_Triggers[triggernum]
+                t = CLT_Triggers.specnum[triggernum]
 				self:Debug("considering trigger", i, t.event, t.name)
 				-- assume we're going to report this event
 				doReport = true
