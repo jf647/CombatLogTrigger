@@ -1,0 +1,12 @@
+TODO
+----
+
+- add option to only trigger if in combat
+- add support for rules based on spec
+  - two trigger sets in config
+  - include both common and spec-specific triggers in combat
+
+DONE
+----
+
+- ensure that rules for raids don't fire in battlegrounds (needs test)

@@ -15,7 +15,7 @@ local aff, aff_to_trigger
 local grouptype = 0
 
 -- per-event variables to avoid re-allocating in-scope
-local ev, sName, sFlags, dName, dFlags, spellId, spellName, espellId, espellName
+local ev, sName, sFlags, dName, dFlags, spellId, spellName, espellId, espellName, doReport
 
 -- convenience functions
 local bit_band = _G.bit.band
@@ -126,9 +126,20 @@ function CLT:BuildInteresting()
 end
 
 -- handle party/raid size changes
+-- 0 = solo, 1 = party, 2 = raid, 3 = bg, 4 = arena
 function CLT:UpdateGroupType()
     if GetNumRaidMembers() > 0 then
+        local inInstance, instanceType = IsInInstance()
+        -- assume a normal raid group
         grouptype = 2
+        -- check for BG or Arena
+        if inInstance then
+            if instanceType == "pvp" then
+                grouptype = 3
+            elseif instanceType == "raid" then
+                grouptype = 4
+            end
+        end
     elseif GetNumPartyMembers() > 0 then
         grouptype = 1
     else
@@ -145,48 +156,52 @@ function CLT:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
             for i, triggernum in ipairs(aff_to_trigger[saff]) do
                 t = CLT_Triggers[triggernum]
 				self:Debug("considering trigger", i, t.event, t.name)
+				-- assume we're going to report this event
+				doReport = true
                 -- break out early if we have a group type constraint that doesn't match
                 if t.grouptype ~= nil then
 					self:Debug("considering grouptype match between", t.grouptype, "and", grouptype)
 					if t.grouptype ~= grouptype then
 						self:Debug("grouptype match failed")
-						return
+						doReport = false
 					end
 				end
                 -- does the event match?
-                if t.event == ev then
+                if doReport and t.event == ev then
 					-- source / dest match
 					if t.src ~= nil then
 						self:Debug("considering src match between", t.src, "and", sName)
 						if t.src ~= sName then
 							self:Debug("src match failed")
-							return
+							doReport = false
 						end
 					end
-					if t.dst ~= nil then
+					if doReport and t.dst ~= nil then
 						self:Debug("considering dst match between", t.dst, "and", dName)
 						if t.dst ~= dName then
 							self:Debug("dst match failed")
-							return
+							doReport = false
 						end
 					end
                     -- does the spellId or spellName match? 
-                    if t.spellId ~= nil then
-						self:Debug("considering spellid match between", t.spellId, "and", spellId)
-						if t.spellId == spellId then
-							self:Debug("reporting a spellid match on", spellId, "/", spellId)
-							self:Report(t)
-						end
-					elseif t.spellName ~= nil then
-						self:Debug("considering spellid match between", t.spellId, "and", spellId)
-						if t.spellName == spellName then
-							self:Debug("reporting a spellname match on", spellId, "/", spellId)
-							self:Report(t)
-						end
-					elseif t.anyspell ~= nil then
-						self:Debug("reporting an anyspell match on", spellId, "/", spellId)
-						self:Report(t)
-					end
+                    if doReport then
+                        if t.spellId ~= nil then
+	    					self:Debug("considering spellid match between", t.spellId, "and", spellId)
+        						if t.spellId == spellId then
+    							self:Debug("reporting a spellid match on", spellId, "/", spellId)
+    							self:Report(t)
+    						end
+    					elseif t.spellName ~= nil then
+    						self:Debug("considering spellid match between", t.spellId, "and", spellId)
+    						if t.spellName == spellName then
+    							self:Debug("reporting a spellname match on", spellId, "/", spellId)
+    							self:Report(t)
+    						end
+    					elseif t.anyspell ~= nil then
+    						self:Debug("reporting an anyspell match on", spellId, "/", spellId)
+    						self:Report(t)
+	    				end
+                    end
                 end
             end
         end
