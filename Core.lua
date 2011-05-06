@@ -11,16 +11,16 @@ CLT = LibStub("AceAddon-3.0"):NewAddon(
 -- interesting affiliations and triggers
 local aff, aff_to_trigger
 
--- group size
+-- state variables
 local grouptype = 0
-
--- current talent spec
-local specnum
+local spec = "spec1"
+local incombat = false
 
 -- per-event variables to avoid re-allocating in-scope
 local ev, sName, sFlags, dName, dFlags, spellId, spellName, espellId, espellName, doReport
 
 -- convenience functions
+local bit_bor = _G.bit.bor
 local bit_band = _G.bit.band
 local string_find = string.find
 local string_gsub = string.gsub
@@ -53,6 +53,13 @@ local filterEnemy = _G.bit.bor(
 )
 local sfilterEnemy = string_format("%d", filterEnemy)
 
+-- party type bitmasks
+local gtSolo  = 0x01
+local gtParty = 0x02
+local gtRaid  = 0x04
+local gtBg    = 0x08
+local gtArena = 0x10
+
 -- debug output
 function CLT:Debug(...)
     if CLT_DB.debug then
@@ -63,13 +70,25 @@ end
 -- enable addon
 function CLT:OnEnable()
     if CLT_DB.enabled then
+
+        -- register the events we're interested in
         self:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
         self:RegisterEvent("PARTY_MEMBERS_CHANGED", "UpdateGroupType")
         self:RegisterEvent("RAID_ROSTER_UPDATE", "UpdateGroupType")
-        self:UpdateGroupType()
         self:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", "UpdateSpec")
+        self:RegisterEvent("PLAYER_REGEN_DISABLED", "UpdateCombat", true)
+        self:RegisterEvent("PLAYER_REGEN_ENABLED", "UpdateCombat", false)
+
+        -- set up initial state
+        self:UpdateGroupType()
         self:UpdateSpec()
+        self:UpdateCombat()
+
+        -- register slash commands
+        self:RegisterChatCommand("clt", "SlashCommand")
+
         self:Print("CombatLogTrigger activated")
+
     end
 end
 
@@ -77,8 +96,81 @@ end
 function CLT:OnDisable()
     if CLT_DB.enabled then
         self:UnregisterAllEvents()
+        self:UnregisterChatCommand("clt")
         self:Print("CombatLogTrigger deactivated")
     end
+end
+
+-- handle /clt slash command
+-- /clt enable
+-- /clt disable
+-- /clt debug (toggle)
+-- /clt list [1|2]
+function CLT:SlashCommand(text)
+    local command, rest = text:match("^(%S*)%s*(.-)$")
+    if command == "enable" then
+        if not self:IsEnabled() then
+            self:Enable()
+        else
+            self:Print("already enabled")
+        end
+    elseif command == "disable" then
+        if self:IsEnabled() then
+            self:Disable()
+        else
+            self:Print("already disabled")
+        end
+    elseif command == "debug" then
+        CLT_DB.debug = not CLT_DB.debug
+    elseif command == "list" then
+        if rest ~= nil then
+            if CLT_Triggers["spec"..rest] ~= nil then
+                self:ListTriggers("spec"..rest)
+            else
+                self:Print("usage: /clt list [1|2]")
+            end
+        else
+            self:ListTriggers(spec)
+        end
+    else
+        self:Print("usage: /clt enable")
+        self:Print("       /clt disable")
+        self:Print("       /clt debug")
+        self:Print("       /clt list [1|2]")
+    end
+end
+
+-- handle party/raid size changes
+function CLT:UpdateGroupType()
+    grouptype = 0;
+    local inInstance, instanceType = IsInInstance()
+    if inInstance then
+        if instanceType == "pvp" then
+            grouptype = bit_bor(grouptype, gtBg)
+        elseif instanceType == "raid" then
+            grouptype = bit_bor(grouptype, gtArena)
+        end
+    end
+    if GetNumRaidMembers() > 0 then
+        grouptype = bit_bor(grouptype, gtRaid)
+    elseif GetNumPartyMembers() > 0 then
+        grouptype = bit_bor(grouptype, gtParty)
+    else
+        grouptype = bit_bor(grouptype, gtSolo)
+    end
+end
+
+-- handle spec changes
+function CLT:UpdateSpec()
+    local specnum = GetActiveTalentGroup(false, false)
+	spec = "spec" .. specnum
+	self:Debug("now in", spec)
+    self:BuildInteresting()
+end
+
+-- handle combat state changes
+function CLT:UpdateCombat(state)
+    incombat = state
 end
 
 -- build a list of interesting affiliations and events
@@ -86,15 +178,8 @@ function CLT:BuildInteresting()
     local affil = {}
 	aff = {}
 	aff_to_trigger = {}
-    for i = 1, #(CLT_Triggers.specnum) do
-        t = CLT_Triggers.specnum[i]
-        if CLT_DB.debug then
-            if t.spellId ~= nil then
-                self:Debug("trigger ", i, ":", t.event, ",", t.spellId, ",", t.channel, ",", t.message)
-            else
-                self:Debug("trigger ", i, ":", t.event, ",", t.channel, ",", t.message)
-            end
-        end
+    for i = 1, #(CLT_Triggers[spec]) do
+        t = CLT_Triggers[spec][i]
         if t.affiliation == "mine" then
             if affil.filterMine == nil then
                 self:Debug("adding filterMine to interesting affiliations")
@@ -104,7 +189,6 @@ function CLT:BuildInteresting()
             end
             self:Debug("adding trigger ", i, " to filterMine events")
             table.insert(aff_to_trigger[sfilterMine], i)
-			self:Debug("filterEnemy now has", #(aff_to_trigger[sfilterMine]), "triggers")
         elseif t.affiliation == "myGuardian" then 
             if affil.filterMyGuardian == nil then
                 self:Debug("adding filterMyGuardian to interesting affiliations")
@@ -114,7 +198,6 @@ function CLT:BuildInteresting()
             end
             self:Debug("adding trigger ", i, " to filterMyGuardian events")
             table.insert(aff_to_trigger[sfilterMyGuardian], i)
-			self:Debug("filterEnemy now has", #(aff_to_trigger[sfilterMyGuardian]), "triggers")
         elseif t.affiliation == "enemy" then
             if affil.filterEnemy == nil then
                 self:Debug("adding filterEnemy to interesting affiliations")
@@ -124,38 +207,10 @@ function CLT:BuildInteresting()
             end
             self:Debug("adding trigger ", i, " to filterEnemy events")
             table.insert(aff_to_trigger[sfilterEnemy], i)
-			self:Debug("filterEnemy now has", #(aff_to_trigger[sfilterEnemy]), "triggers")
        end
     end
 end
 
--- handle party/raid size changes
--- 0 = solo, 1 = party, 2 = raid, 3 = bg, 4 = arena
-function CLT:UpdateGroupType()
-    if GetNumRaidMembers() > 0 then
-        local inInstance, instanceType = IsInInstance()
-        -- assume a normal raid group
-        grouptype = 2
-        -- check for BG or Arena
-        if inInstance then
-            if instanceType == "pvp" then
-                grouptype = 3
-            elseif instanceType == "raid" then
-                grouptype = 4
-            end
-        end
-    elseif GetNumPartyMembers() > 0 then
-        grouptype = 1
-    else
-        grouptype = 0
-    end
-end
-
--- handle spec changes
-function CLT:UpdateSpec()
-    specnum = GetActiveTalentGroup(false, false)
-    self:BuildInteresting()
-end
 
 -- handle combat log event
 function CLT:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
@@ -164,51 +219,59 @@ function CLT:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
         if bit_band(sFlags, aff) or bit_band(dFlags, aff) then
 			saff = string_format("%d", aff)
             for i, triggernum in ipairs(aff_to_trigger[saff]) do
-                t = CLT_Triggers.specnum[triggernum]
-				self:Debug("considering trigger", i, t.event, t.name)
+                t = CLT_Triggers[spec][triggernum]
+				--self:Debug("considering trigger", i, t.event, t.name)
 				-- assume we're going to report this event
 				doReport = true
-                -- break out early if we have a group type constraint that doesn't match
-                if t.grouptype ~= nil then
-					self:Debug("considering grouptype match between", t.grouptype, "and", grouptype)
-					if t.grouptype ~= grouptype then
-						self:Debug("grouptype match failed")
+                -- break out early if we have a group mask constraint that doesn't match
+                if t.groupmask ~= nil then
+					--self:Debug("considering groupmask match between", t.groupmask, "and", grouptype)
+					if bit_band(t.groupmask, grouptype) == t.groupmask then
+						--self:Debug("groupmask match failed")
 						doReport = false
 					end
+				end
+				-- break out if we have a combat restriction and we're not in combat
+				if doReport and t.incombat ~= nil then
+				    --self:Debug("considering incombat match between", t.incombat, "and", incombat)
+				    if t.incombat ~= incombat then
+    				    --self:Debug("incombat match failed")
+                        doReport = false
+                    end
 				end
                 -- does the event match?
                 if doReport and t.event == ev then
 					-- source / dest match
 					if t.src ~= nil then
-						self:Debug("considering src match between", t.src, "and", sName)
+						--self:Debug("considering src match between", t.src, "and", sName)
 						if t.src ~= sName then
-							self:Debug("src match failed")
+							--self:Debug("src match failed")
 							doReport = false
 						end
 					end
 					if doReport and t.dst ~= nil then
-						self:Debug("considering dst match between", t.dst, "and", dName)
+						--self:Debug("considering dst match between", t.dst, "and", dName)
 						if t.dst ~= dName then
-							self:Debug("dst match failed")
+							--self:Debug("dst match failed")
 							doReport = false
 						end
 					end
                     -- does the spellId or spellName match? 
                     if doReport then
                         if t.spellId ~= nil then
-	    					self:Debug("considering spellid match between", t.spellId, "and", spellId)
+	    					--self:Debug("considering spellid match between", t.spellId, "and", spellId)
         						if t.spellId == spellId then
-    							self:Debug("reporting a spellid match on", spellId, "/", spellId)
+    							--self:Debug("reporting a spellid match on", spellName, "/", spellId)
     							self:Report(t)
     						end
     					elseif t.spellName ~= nil then
-    						self:Debug("considering spellid match between", t.spellId, "and", spellId)
+    						--self:Debug("considering spellid match between", t.spellName, "and", spellName)
     						if t.spellName == spellName then
-    							self:Debug("reporting a spellname match on", spellId, "/", spellId)
+    							--self:Debug("reporting a spellname match on", spellName, "/", spellId)
     							self:Report(t)
     						end
     					elseif t.anyspell ~= nil then
-    						self:Debug("reporting an anyspell match on", spellId, "/", spellId)
+    						--self:Debug("reporting an anyspell match on", spellName, "/", spellId)
     						self:Report(t)
 	    				end
                     end
@@ -237,11 +300,15 @@ function CLT:Report(t)
     -- handle auto channel selection
     local channel = t.channel
     if channel == "AUTO" then
-        if grouptype == 2 then
+		--self:Debug("bit_band(gtRaid, grouptype)", bit_band(gtRaid, grouptype))
+        if bit_band(gtRaid, grouptype) == gtRaid then
+			--self:Debug("selecting RAID")
             channel = "RAID"
-        elseif grouptype == 1 then
+        elseif bit_band(gtParty, grouptype) == gtParty then
+			--self:Debug("selecting PARTY")
             channel = "PARTY"
-        else
+        elseif bit_band(gtSolo, grouptype) == gtSolo then
+			--self:Debug("selecting SELF")
             channel = "SELF"
         end
     end
@@ -266,6 +333,20 @@ function CLT:Report(t)
 		end
 	end
     
+end
+
+function CLT:ListTriggers(spec)
+    self:Print("dumping triggers for", spec)
+    for i = 1, #(CLT_Triggers[spec]) do
+        t = CLT_Triggers[spec][i]
+        self:Printf("Trigger %d: %s", i, t.name)
+        for _, key in ipairs( { "event", "affiliation", "spellName", "spellId", "anySpell", "src", "dst", "channel", "groupmask", "message", "incombat" } ) do
+            if t[key] ~= nil then
+                self:Printf("  %s: %s", key, t[key])
+            end
+        end
+        self:Print()
+    end
 end
 
 --
