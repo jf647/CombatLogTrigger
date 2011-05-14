@@ -15,6 +15,7 @@ local aff, aff_to_trigger
 local grouptype = 0
 local spec = "spec1"
 local incombat = false
+local playername
 
 -- per-event variables to avoid re-allocating in-scope
 local ev, sName, sFlags, dName, dFlags, spellId, spellName, espellId, espellName, doReport
@@ -70,6 +71,9 @@ end
 -- enable addon
 function CLT:OnEnable()
     if CLT_DB.enabled then
+	
+		-- get our name
+		playername = UnitName("player")
 
         -- register the events we're interested in
         self:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
@@ -82,7 +86,7 @@ function CLT:OnEnable()
         -- set up initial state
         self:UpdateGroupType()
         self:UpdateSpec()
-        self:UpdateCombat()
+        self:UpdateCombat(false)
 
         -- register slash commands
         self:RegisterChatCommand("clt", "SlashCommand")
@@ -110,33 +114,44 @@ function CLT:SlashCommand(text)
     local command, rest = text:match("^(%S*)%s*(.-)$")
     if command == "enable" then
         if not self:IsEnabled() then
+			self:Print("enabling")
             self:Enable()
+			CLT_DB.enabled = true
         else
             self:Print("already enabled")
         end
     elseif command == "disable" then
         if self:IsEnabled() then
+			self:Print("disabling")
             self:Disable()
+			CLT_DB.enabled = false
         else
             self:Print("already disabled")
         end
     elseif command == "debug" then
         CLT_DB.debug = not CLT_DB.debug
+		if CLT_DB.debug then
+			self:Print("debug is now on")
+		else
+			self:Print("debug is now off")
+		end
     elseif command == "list" then
-        if rest ~= nil then
+		if rest == "" then
+			self:ListTriggers(spec)
+        elseif rest:match("^(1|2)$") then
             if CLT_Triggers["spec"..rest] ~= nil then
                 self:ListTriggers("spec"..rest)
             else
-                self:Print("usage: /clt list [1|2]")
+                self:Printf("no triggers for spec%s", rest)
             end
         else
-            self:ListTriggers(spec)
+			self:Print("usage: /clt list [specnum]")
         end
     else
         self:Print("usage: /clt enable")
         self:Print("       /clt disable")
         self:Print("       /clt debug")
-        self:Print("       /clt list [1|2]")
+        self:Print("       /clt list [specnum]")
     end
 end
 
@@ -164,7 +179,7 @@ end
 function CLT:UpdateSpec()
     local specnum = GetActiveTalentGroup(false, false)
 	spec = "spec" .. specnum
-	self:Debug("now in", spec)
+	--self:Debug("now in", spec)
     self:BuildInteresting()
 end
 
@@ -182,30 +197,30 @@ function CLT:BuildInteresting()
         t = CLT_Triggers[spec][i]
         if t.affiliation == "mine" then
             if affil.filterMine == nil then
-                self:Debug("adding filterMine to interesting affiliations")
+                --self:Debug("adding filterMine to interesting affiliations")
                 affil.filterMine = 1
 				table.insert(aff, filterMine)
 				aff_to_trigger[sfilterMine] = {}
             end
-            self:Debug("adding trigger ", i, " to filterMine events")
+            --self:Debug("adding trigger ", i, " to filterMine events")
             table.insert(aff_to_trigger[sfilterMine], i)
         elseif t.affiliation == "myGuardian" then 
             if affil.filterMyGuardian == nil then
-                self:Debug("adding filterMyGuardian to interesting affiliations")
+                --self:Debug("adding filterMyGuardian to interesting affiliations")
                 affil.filterMyGuardian = 1
 				table.insert(aff, filterMyGuardian)
 				aff_to_trigger[sfilterMyGuardian] = {}
             end
-            self:Debug("adding trigger ", i, " to filterMyGuardian events")
+            --self:Debug("adding trigger ", i, " to filterMyGuardian events")
             table.insert(aff_to_trigger[sfilterMyGuardian], i)
         elseif t.affiliation == "enemy" then
             if affil.filterEnemy == nil then
-                self:Debug("adding filterEnemy to interesting affiliations")
+                --self:Debug("adding filterEnemy to interesting affiliations")
                 affil.filterEnemy = 1
 				table.insert(aff, filterEnemy)
 				aff_to_trigger[sfilterEnemy] = {}
             end
-            self:Debug("adding trigger ", i, " to filterEnemy events")
+            --self:Debug("adding trigger ", i, " to filterEnemy events")
             table.insert(aff_to_trigger[sfilterEnemy], i)
        end
     end
@@ -240,18 +255,25 @@ function CLT:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
                     end
 				end
                 -- does the event match?
+				--self:Debug("considering event match between", t.event, "and", ev)
                 if doReport and t.event == ev then
 					-- source / dest match
 					if t.src ~= nil then
 						--self:Debug("considering src match between", t.src, "and", sName)
-						if t.src ~= sName then
+						if doReport and t.src ~= sName then
 							--self:Debug("src match failed")
 							doReport = false
 						end
 					end
 					if doReport and t.dst ~= nil then
+						if t.notonself ~= nil then
+							if t.dst == playername then
+								--self:Debug("skipping report; dest is self and notonself flag is set")
+								doReport = false
+							end
+						end
 						--self:Debug("considering dst match between", t.dst, "and", dName)
-						if t.dst ~= dName then
+						if doReport and t.dst ~= dName then
 							--self:Debug("dst match failed")
 							doReport = false
 						end
@@ -265,12 +287,18 @@ function CLT:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
     							self:Report(t)
     						end
     					elseif t.spellName ~= nil then
-    						--self:Debug("considering spellid match between", t.spellName, "and", spellName)
+    						--self:Debug("considering spellname match between", t.spellName, "and", spellName)
     						if t.spellName == spellName then
     							--self:Debug("reporting a spellname match on", spellName, "/", spellId)
     							self:Report(t)
     						end
-    					elseif t.anyspell ~= nil then
+    					elseif t.spellApprox ~= nil then
+    						--self:Debug("considering spellapprox match between", t.spellApprox, "and", spellName)
+    						if string_find(t.spellApprox, spellName) then
+    							--self:Debug("reporting a spellapprox match on", spellName, "/", spellId)
+    							self:Report(t)
+    						end
+						elseif t.anyspell ~= nil then
     						--self:Debug("reporting an anyspell match on", spellName, "/", spellId)
     						self:Report(t)
 	    				end
@@ -286,29 +314,56 @@ function CLT:Report(t)
 
     -- format the message
     local message = string_gsub(t.message, "*ev", ev)
-    message = string_gsub(message, "*src", sName)
+
+    -- general replacements
+	message = string_gsub(message, "*src", sName)
     message = string_gsub(message, "*tgt", dName)
     message = string_gsub(message, "*sid", spellId)
     message = string_gsub(message, "*sname", spellName)
     message = string_gsub(message, "*slink", GetSpellLink(spellId))
-    if espellId ~= nil then
+	
+	-- extra spell id
+    if t.hasespellid ~= nil then
         message = string_gsub(message, "*esid", espellId)
         message = string_gsub(message, "*esname", espellName)
         message = string_gsub(message, "*eslink", GetSpellLink(espellId))
     end
 
-    -- handle auto channel selection
+	-- raid target replacement
+	if t.replacert ~= nil then
+		--self:Debug("trying to append raid marker")
+		if bit_band(dFlags, COMBATLOG_OBJECT_SPECIAL_MASK) > 0 then
+			--self:Debug("unit has raid marker")
+			local rtid
+			if bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET1) > 0 then rtid = 1
+			elseif bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET2) > 0 then rtid = 2
+			elseif bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET3) > 0 then rtid = 3
+			elseif bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET4) > 0 then rtid = 4
+			elseif bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET5) > 0 then rtid = 5
+			elseif bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET6) > 0 then rtid = 6
+			elseif bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET7) > 0 then rdid = 7
+			elseif bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET8) > 0 then rtid = 8 end
+			if rtid ~= nil then
+				--self:Debug("raid marker number is", rtid)
+				message = string_gsub(message, "*rtls", string_format(" {rt%d}", rtid))
+				message = string_gsub(message, "*rtp", string_format("({rt%d})", rtid))
+				--message = string_gsub(message, "*rt", string_format("{rt%d}", rtid))
+			end
+		end
+	end
+	
+    -- auto channel selection
     local channel = t.channel
     if channel == "AUTO" then
-		--self:Debug("bit_band(gtRaid, grouptype)", bit_band(gtRaid, grouptype))
+		----self:Debug("bit_band(gtRaid, grouptype)", bit_band(gtRaid, grouptype))
         if bit_band(gtRaid, grouptype) == gtRaid then
-			--self:Debug("selecting RAID")
+			----self:Debug("selecting RAID")
             channel = "RAID"
         elseif bit_band(gtParty, grouptype) == gtParty then
-			--self:Debug("selecting PARTY")
+			----self:Debug("selecting PARTY")
             channel = "PARTY"
         elseif bit_band(gtSolo, grouptype) == gtSolo then
-			--self:Debug("selecting SELF")
+			----self:Debug("selecting SELF")
             channel = "SELF"
         end
     end
@@ -328,7 +383,7 @@ function CLT:Report(t)
 	-- if we're doing a spellid trace, output that to the chat frame
 	if t.reportspellid then
 		self:Print("spellId for", GetSpellLink(spellId), "is", spellId)
-		if espellId ~= nil then
+		if t.hasespellid ~= nil then
 			self:Print("spellId for", GetSpellLink(espellId), "is", espellId)
 		end
 	end
@@ -340,9 +395,18 @@ function CLT:ListTriggers(spec)
     for i = 1, #(CLT_Triggers[spec]) do
         t = CLT_Triggers[spec][i]
         self:Printf("Trigger %d: %s", i, t.name)
-        for _, key in ipairs( { "event", "affiliation", "spellName", "spellId", "anySpell", "src", "dst", "channel", "groupmask", "message", "incombat" } ) do
+        for _, key in ipairs( { "event", "affiliation", "spellName", "spellApprox", "spellId", "src", "dst", "channel", "groupmask", "message" } ) do
             if t[key] ~= nil then
                 self:Printf("  %s: %s", key, t[key])
+            end
+        end
+        for _, key in ipairs( { "anyspell", "incombat", "notonself", "replacert", "hasespellid" } ) do
+            if t[key] ~= nil then
+				if t[key] then
+					self:Printf("  %s: true", key)
+				else
+					self:Printf("  %s: false", key)
+				end
             end
         end
         self:Print()
