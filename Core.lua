@@ -23,6 +23,7 @@ local ev, sName, sFlags, dName, dFlags, spellId, spellName, espellId, espellName
 -- convenience functions
 local bit_bor = _G.bit.bor
 local bit_band = _G.bit.band
+local bit_lshift = _G.bit.lshift
 local string_find = string.find
 local string_gsub = string.gsub
 local string_format = string.format
@@ -335,20 +336,23 @@ function CLT:Report(t)
 		if bit_band(dFlags, COMBATLOG_OBJECT_SPECIAL_MASK) > 0 then
 			--self:Debug("unit has raid marker")
 			local rtid
-			if bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET1) > 0 then rtid = 1
-			elseif bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET2) > 0 then rtid = 2
-			elseif bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET3) > 0 then rtid = 3
-			elseif bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET4) > 0 then rtid = 4
-			elseif bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET5) > 0 then rtid = 5
-			elseif bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET6) > 0 then rtid = 6
-			elseif bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET7) > 0 then rdid = 7
-			elseif bit_band(dFlags, COMBATLOG_OBJECT_RAIDTARGET8) > 0 then rtid = 8 end
+			for i = 7,0,-1
+			do
+				if bit_band(dFlags, bit_lshift(COMBATLOG_OBJECT_RAIDTARGET1, i) ) > 0 then
+					rtid = i + 1
+					break
+				end
+			end
 			if rtid ~= nil then
 				--self:Debug("raid marker number is", rtid)
 				message = string_gsub(message, "*rtls", string_format(" {rt%d}", rtid))
 				message = string_gsub(message, "*rtp", string_format("({rt%d})", rtid))
 				--message = string_gsub(message, "*rt", string_format("{rt%d}", rtid))
+			else
+				message = string_gsub(message, "*rt%a+", "")
 			end
+		else
+			message = string_gsub(message, "*rt%a+", "")
 		end
 	end
 	
