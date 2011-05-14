@@ -1,12 +1,13 @@
 TODO
 ----
 
-- add option to only trigger if in combat
-- add support for rules based on spec
-  - two trigger sets in config
-  - include both common and spec-specific triggers in combat
+- add switches to enable/disble, debug on/off, list rules (per spec or current by default)
 
 DONE
 ----
 
+- add option to only trigger if in combat (test)
 - ensure that rules for raids don't fire in battlegrounds (needs test)
+- add support for rules based on spec
+  - two trigger sets in config
+  - include both common and spec-specific triggers in spec
