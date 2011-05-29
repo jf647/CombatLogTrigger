@@ -117,18 +117,11 @@ function CLT:SlashCommand(text)
         if not self:IsEnabled() then
 			self:Print("enabling")
             self:Enable()
-			CLT_DB.enabled = true
         else
             self:Print("already enabled")
         end
     elseif command == "disable" then
-        if self:IsEnabled() then
-			self:Print("disabling")
-            self:Disable()
-			CLT_DB.enabled = false
-        else
-            self:Print("already disabled")
-        end
+        self:Disable()
     elseif command == "debug" then
         CLT_DB.debug = not CLT_DB.debug
 		if CLT_DB.debug then
@@ -232,7 +225,8 @@ end
 function CLT:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
     ev, _, _, sName, sFlags, _, dName, dFlags, spellId, spellName, _, espellId, espellName = select(2, ...)
     for i, aff in ipairs(aff) do
-        if bit_band(sFlags, aff) or bit_band(dFlags, aff) then
+		--self:Debug("considering triggers for affiliation", aff)
+        if bit_band(sFlags, aff) > 0 or bit_band(dFlags, aff) > 0 then
 			saff = string_format("%d", aff)
             for i, triggernum in ipairs(aff_to_trigger[saff]) do
                 t = CLT_Triggers[spec][triggernum]
@@ -242,7 +236,7 @@ function CLT:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
                 -- break out early if we have a group mask constraint that doesn't match
                 if t.groupmask ~= nil then
 					--self:Debug("considering groupmask match between", t.groupmask, "and", grouptype)
-					if bit_band(t.groupmask, grouptype) == t.groupmask then
+					if 0 == bit_band(t.groupmask, grouptype) then
 						--self:Debug("groupmask match failed")
 						doReport = false
 					end
@@ -258,7 +252,7 @@ function CLT:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
                 -- does the event match?
 				--self:Debug("considering event match between", t.event, "and", ev)
                 if doReport and t.event == ev then
-					-- source / dest match
+					-- source unit check
 					if t.src ~= nil then
 						--self:Debug("considering src match between", t.src, "and", sName)
 						if doReport and t.src ~= sName then
@@ -266,20 +260,20 @@ function CLT:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
 							doReport = false
 						end
 					end
-					if doReport and t.dst ~= nil then
+					-- dest unit check
+					if doReport and ( t.dst ~= nil or t.notonself ~= nil ) then
+						-- notonself is mutually exclusive with dst
 						if t.notonself ~= nil then
-							if t.dst == playername then
+							if dName == playername then
 								--self:Debug("skipping report; dest is self and notonself flag is set")
 								doReport = false
 							end
-						end
-						--self:Debug("considering dst match between", t.dst, "and", dName)
-						if doReport and t.dst ~= dName then
+						elseif t.dst ~= dName then
 							--self:Debug("dst match failed")
 							doReport = false
 						end
 					end
-                    -- does the spellId or spellName match? 
+                    -- spellId / spellName / spellApprox / anyspell check
                     if doReport then
                         if t.spellId ~= nil then
 	    					--self:Debug("considering spellid match between", t.spellId, "and", spellId)
@@ -306,7 +300,9 @@ function CLT:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
                     end
                 end
             end
-        end
+        --else
+			--self:Debug("event", ev, "didn't match this affiliation")
+		end
     end
 end
 
@@ -318,10 +314,14 @@ function CLT:Report(t)
 
     -- general replacements
 	message = string_gsub(message, "*src", sName)
-    message = string_gsub(message, "*tgt", dName)
     message = string_gsub(message, "*sid", spellId)
     message = string_gsub(message, "*sname", spellName)
     message = string_gsub(message, "*slink", GetSpellLink(spellId))
+	
+	-- dest unless spell doesn't have one
+	if dName ~= nil then
+		message = string_gsub(message, "*tgt", dName)
+	end
 	
 	-- extra spell id
     if t.hasespellid ~= nil then
