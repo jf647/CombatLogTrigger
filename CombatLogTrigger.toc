@@ -1,7 +1,7 @@
 ## Interface: 41000
 ## Title: CombatLogTrigger
 ## Author: Jehnen@The Sha'tar-EU
-## Version: 1.2.2
+## Version: 1.2.3
 ## Notes: Trigger actions based on combat log events
 ## SavedVariablesPerCharacter: CLT_Triggers, CLT_DB
 

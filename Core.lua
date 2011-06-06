@@ -346,6 +346,8 @@ function CLT:Report(t)
 			if rtid ~= nil then
 				--self:Debug("raid marker number is", rtid)
 				message = string_gsub(message, "*rtls", string_format(" {rt%d}", rtid))
+				message = string_gsub(message, "*rtpbs", string_format(" ({rt%d}) ", rtid))
+				message = string_gsub(message, "*rtpls", string_format(" ({rt%d})", rtid))
 				message = string_gsub(message, "*rtp", string_format("({rt%d})", rtid))
 				--message = string_gsub(message, "*rt", string_format("{rt%d}", rtid))
 			else
