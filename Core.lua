@@ -18,7 +18,7 @@ local incombat = false
 local playername
 
 -- per-event variables to avoid re-allocating in-scope
-local ev, sName, sFlags, dName, dFlags, spellId, spellName, espellId, espellName, doReport
+local ev, sName, sFlags, dName, dFlags, dRFlags, spellId, spellName, espellId, espellName, doReport
 
 -- convenience functions
 local bit_bor = _G.bit.bor
@@ -223,7 +223,7 @@ end
 
 -- handle combat log event
 function CLT:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
-    ev, _, _, sName, sFlags, _, dName, dFlags, spellId, spellName, _, espellId, espellName = select(2, ...)
+    ev, _, _, sName, sFlags, _, _, dName, dFlags, dRFlags, spellId, spellName, _, espellId, espellName = select(2, ...)
     for i, aff in ipairs(aff) do
 		--self:Debug("considering triggers for affiliation", aff)
         if bit_band(sFlags, aff) > 0 or bit_band(dFlags, aff) > 0 then
@@ -338,7 +338,7 @@ function CLT:Report(t)
 			local rtid
 			for i = 7,0,-1
 			do
-				if bit_band(dFlags, bit_lshift(COMBATLOG_OBJECT_RAIDTARGET1, i) ) > 0 then
+				if bit_band(dRFlags, bit_lshift(COMBATLOG_OBJECT_RAIDTARGET1, i) ) > 0 then
 					rtid = i + 1
 					break
 				end
