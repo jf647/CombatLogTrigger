@@ -160,9 +160,9 @@ function CLT:UpdateGroupType()
             grouptype = bit_bor(grouptype, gtArena)
         end
     end
-    if GetNumRaidMembers() > 0 then
+    if IsInRaid() and GetNumGroupMembers() > 0 then
         grouptype = bit_bor(grouptype, gtRaid)
-    elseif GetNumPartyMembers() > 0 then
+    elseif GetNumGroupMembers() > 0 then
         grouptype = bit_bor(grouptype, gtParty)
     else
         grouptype = bit_bor(grouptype, gtSolo)
@@ -171,7 +171,7 @@ end
 
 -- handle spec changes
 function CLT:UpdateSpec()
-    local specnum = GetActiveTalentGroup(false, false)
+    local specnum = GetActiveSpecGroup()
 	spec = "spec" .. specnum
 	--self:Debug("now in", spec)
     self:BuildInteresting()
