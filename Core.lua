@@ -78,8 +78,7 @@ function CLT:OnEnable()
 
         -- register the events we're interested in
         self:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-        self:RegisterEvent("PARTY_MEMBERS_CHANGED", "UpdateGroupType")
-        self:RegisterEvent("RAID_ROSTER_UPDATE", "UpdateGroupType")
+        self:RegisterEvent("GROUP_ROSTER_UPDATE", "UpdateGroupType")
         self:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", "UpdateSpec")
         self:RegisterEvent("PLAYER_REGEN_DISABLED", "UpdateCombat", true)
         self:RegisterEvent("PLAYER_REGEN_ENABLED", "UpdateCombat", false)
@@ -160,13 +159,15 @@ function CLT:UpdateGroupType()
             grouptype = bit_bor(grouptype, gtArena)
         end
     end
-    if IsInRaid() and GetNumGroupMembers() > 0 then
+    if IsInRaid() then
         grouptype = bit_bor(grouptype, gtRaid)
-    elseif GetNumGroupMembers() > 0 then
+	end
+    if GetNumGroupMembers() > 0 then
         grouptype = bit_bor(grouptype, gtParty)
     else
         grouptype = bit_bor(grouptype, gtSolo)
     end
+	--self:Debug("grouptype is now", grouptype)
 end
 
 -- handle spec changes
